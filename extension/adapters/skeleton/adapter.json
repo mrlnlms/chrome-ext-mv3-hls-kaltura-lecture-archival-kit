@@ -1,0 +1,12 @@
+{
+  "name": "skeleton",
+  "description": "Placeholder adapter. Replace URL patterns, field mappings, and DOM selectors with your platform's specifics. See README.md for step-by-step adaptation guide.",
+  "origins": [
+    "https://your-lms.example.com"
+  ],
+  "chat_api_host": "your-lms-chat-api.example.com",
+  "materials_api_host": "your-lms-api.example.com",
+  "slides_cdn_host": "your-lms-cdn.example.com",
+  "chat_transport": "signalr+messagepack",
+  "auth_scheme": "bearer"
+}
