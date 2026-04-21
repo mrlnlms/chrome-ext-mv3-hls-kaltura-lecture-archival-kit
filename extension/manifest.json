@@ -12,13 +12,44 @@
     "downloads"
   ],
   "host_permissions": [
-    "https://*.kaltura.com/*"
+    "https://*.kaltura.com/*",
+    "https://your-lms.example.com/*",
+    "https://your-lms-chat-api.example.com/*",
+    "https://your-lms-api.example.com/*"
   ],
   "background": {
     "service_worker": "background.js",
     "type": "module"
   },
-  "content_scripts": [],
+  "content_scripts": [
+    {
+      "matches": ["https://your-lms.example.com/*"],
+      "js": ["adapters/skeleton/messagepack-decoder.js", "adapters/skeleton/chat-hook.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://your-lms.example.com/*"],
+      "js": ["adapters/skeleton/chat-bridge.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://your-lms.example.com/*"],
+      "js": ["adapters/skeleton/materials-hook.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://your-lms.example.com/*"],
+      "js": ["adapters/skeleton/materials-bridge.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://your-lms.example.com/*"],
+      "js": ["adapters/skeleton/metadata-scrape.js"],
+      "run_at": "document_idle"
+    }
+  ],
   "action": {
     "default_title": "Kaltura Lecture Archival Kit",
     "default_popup": "popup.html"
