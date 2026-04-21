@@ -108,31 +108,73 @@ vanilla Python in the host.
 
 ## Getting started
 
-> **Status: WIP.** Generalized extension and host code are being
-> extracted from a production-validated implementation and are not yet
-> committed. Until that lands, this section is a stub.
->
-> In the meantime, [`ARCHITECTURE.md`](ARCHITECTURE.md) is fully written
-> and describes every technique needed to implement your own version.
+### Prerequisites
 
-Planned structure for the eventual installation flow:
+- macOS (tested on Darwin 25 / Sequoia) — Linux and Windows support TBD
+- Python 3.10 or newer
+- `ffmpeg` in `PATH` (macOS: `brew install ffmpeg`)
+- Google Chrome with Developer Mode enabled
+- ~3 GB free disk space per lecture (final MP4 is 1.5-2 GB)
 
+### Installation
+
+```bash
+git clone https://github.com/<your-user>/chrome-ext-mv3-hls-kaltura-lecture-archival-kit.git
+cd chrome-ext-mv3-hls-kaltura-lecture-archival-kit
+
+# Set up Python virtualenv (Python 3.14+ on macOS requires this — see PEP 668)
+python3 -m venv .venv
+.venv/bin/pip install -r requirements-dev.txt
+
+# Run tests to verify the Python host works
+.venv/bin/pytest
 ```
-# Install the native messaging host (copies host files to ~/.local-host/
-# and writes the Chrome NativeMessagingHosts manifest)
-./host/install.sh
 
-# Load the extension in Chrome
-# chrome://extensions → enable "Developer mode" → "Load unpacked"
-# → point at extension/
+### Write your adapter
+
+The extension ships with a **skeleton adapter** that targets the fictional
+`your-lms.example.com`. It won't do anything useful until you adapt it to
+your real LMS. See [`docs/WRITING-AN-ADAPTER.md`](docs/WRITING-AN-ADAPTER.md)
+for the full guide.
+
+Short version:
+
+1. Copy `extension/adapters/skeleton` to `extension/adapters/my-platform`
+2. Replace URL patterns and DOM selectors with your LMS specifics
+3. Do the same for `host/adapters/skeleton` → `host/adapters/my-platform`
+4. Update `extension/manifest.json`: change `content_scripts` paths and
+   `host_permissions` to point at your platform
+
+### Install the native messaging host
+
+```bash
+# Installs Python host files to ~/.kaltura-lecture-host/ and writes
+# the Chrome Native Messaging manifest.
+EXTENSION_ID=<your-extension-id> ./host/install.sh
 ```
 
-Prerequisites (planned):
+Obtain `EXTENSION_ID` from `chrome://extensions` after loading the extension
+unpacked. If you don't pass `EXTENSION_ID`, the script installs a manifest
+with a placeholder that you must edit manually.
 
-- macOS or Linux (Windows support TBD)
-- Python 3.8+
-- `ffmpeg` in PATH (`brew install ffmpeg` on macOS)
-- Chrome / Chromium with Developer Mode enabled
+### Load the extension in Chrome
+
+1. Open `chrome://extensions`
+2. Enable "Developer mode" (toggle, top-right)
+3. Click "Load unpacked"
+4. Select the `extension/` folder from this repo
+
+### Use it
+
+1. Open a lecture page on your LMS (the one you adapted for)
+2. Start playback; let it run for ~30 seconds (so the HLS chunks for 1080p
+   get captured)
+3. Click the extension icon
+4. You should see `Flavors captured: ≥ 1`, `KS: ✓ captured`, and your
+   lecture title from the metadata scrape
+5. Click `Download`
+6. Watch progress in the popup; the final folder is at
+   `~/Downloads/kaltura-lectures/<lecture title>/`
 
 ---
 
