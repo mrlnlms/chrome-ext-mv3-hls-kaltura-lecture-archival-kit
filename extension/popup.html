@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Kaltura Lecture Archival Kit</title>
+  <style>
+    body { font-family: system-ui, sans-serif; font-size: 13px; width: 360px; padding: 12px; margin: 0; }
+    h1 { font-size: 14px; margin: 0 0 8px 0; }
+    .row { margin: 6px 0; display: flex; justify-content: space-between; }
+    .label { color: #666; }
+    .value { font-family: "SF Mono", Menlo, monospace; }
+    button { width: 100%; padding: 8px; margin-top: 10px; font-size: 13px; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+  <h1>Kaltura Lecture Archival Kit</h1>
+  <div class="row"><span class="label">Flavors captured:</span> <span id="flavor-count" class="value">…</span></div>
+  <div class="row"><span class="label">KS:</span> <span id="ks-status" class="value">…</span></div>
+  <div class="row"><span class="label">Adapter:</span> <span id="adapter-name" class="value">none</span></div>
+  <button id="download-btn" disabled>Download (enabled in Phase 4)</button>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>
