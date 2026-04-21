@@ -30,3 +30,12 @@ build/
 # Environment
 .env
 .env.local
+
+# Virtualenv
+.venv/
+venv/
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/
