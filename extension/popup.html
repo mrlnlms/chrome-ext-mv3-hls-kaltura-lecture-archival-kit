@@ -11,6 +11,12 @@
     .value { font-family: "SF Mono", Menlo, monospace; }
     button { width: 100%; padding: 8px; margin-top: 10px; font-size: 13px; }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .download-section { margin-top: 12px; padding-top: 10px; border-top: 1px solid #eee; display: none; }
+    .download-section.active { display: block; }
+    .phase { font-weight: 600; }
+    .error { color: #c33; }
+    .done { color: #393; }
+    .folder { font-size: 11px; color: #666; word-break: break-all; margin-top: 4px; }
   </style>
 </head>
 <body>
@@ -18,7 +24,15 @@
   <div class="row"><span class="label">Flavors captured:</span> <span id="flavor-count" class="value">…</span></div>
   <div class="row"><span class="label">KS:</span> <span id="ks-status" class="value">…</span></div>
   <div class="row"><span class="label">Adapter:</span> <span id="adapter-name" class="value">none</span></div>
-  <button id="download-btn" disabled>Download (enabled in Phase 4)</button>
+  <button id="download-btn" disabled>Download</button>
+
+  <div id="download-section" class="download-section">
+    <div class="row"><span class="label">Phase:</span> <span id="dl-phase" class="value phase">…</span></div>
+    <div class="row"><span class="label">Progress:</span> <span id="dl-progress" class="value">—</span></div>
+    <div id="dl-folder" class="folder"></div>
+    <div id="dl-error" class="error"></div>
+  </div>
+
   <script type="module" src="popup.js"></script>
 </body>
 </html>
