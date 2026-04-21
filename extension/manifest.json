@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Kaltura Lecture Archival Kit",
+  "version": "0.1.0",
+  "description": "Reference Chrome MV3 extension for one-click personal archival of Kaltura-based LMS lectures.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvHpOlU1mJVMYvFDWvNQouPmeYuJTkYIxLTEiqoAcTEv5gUm1T1Ovy3PvcHpV4HFnioI68rgWSA2gh4nqrVGCAwdNTcX+hoKosdVZCjwojK4bVJ1a6UZRmerXyKa+knpRWq0bFIJ9TfzPCdWgjsLTmVWifklDc8JfUWesN8CJpadY4IURRFnouBEMo2zSaVs42vgan//iptDkSrcfQfEpEv7fy9Eb1Xt/9Hz0Rm2YZ8VdXaEanK+xsJOYSgTT4vcg+jSrFG2L8fRzKsaYE7x3AkvR/MKHC6BZMs9tQoo3JCYxTEBzBWmClA540R+zvNeSCFlByPSwkfKHp/oT3+VJ3wIDAQAB",
+  "permissions": [
+    "webRequest",
+    "storage",
+    "activeTab",
+    "nativeMessaging",
+    "downloads"
+  ],
+  "host_permissions": [
+    "https://*.kaltura.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [],
+  "action": {
+    "default_title": "Kaltura Lecture Archival Kit",
+    "default_popup": "popup.html"
+  }
+}

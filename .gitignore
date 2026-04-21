@@ -39,3 +39,6 @@ venv/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Extension signing key (public key goes inline in manifest.json)
+.keys/
