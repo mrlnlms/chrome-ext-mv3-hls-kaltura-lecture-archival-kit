@@ -185,21 +185,45 @@ chrome-ext-mv3-hls-kaltura-lecture-archival-kit/
 ├── README.md          ← this file
 ├── ARCHITECTURE.md    ← deep-dive technical writeup
 ├── LICENSE            ← MIT
-├── extension/         ← Chrome MV3 extension (planned)
+├── extension/                            ← Chrome MV3 extension
 │   ├── manifest.json
-│   ├── background.js
-│   ├── content.js
-│   ├── chat-hook.js           (MAIN world)
-│   ├── chat-bridge.js         (ISOLATED world)
-│   ├── materials-hook.js      (MAIN world)
-│   ├── materials-bridge.js    (ISOLATED world)
-│   ├── popup.html
-│   └── popup.js
-└── host/              ← Python native messaging host (planned)
-    ├── host.py
-    ├── host.sh
-    ├── install.sh
-    └── com.your.host.json
+│   ├── background.js                     ← service worker entry
+│   ├── popup.html / popup.js
+│   ├── core/
+│   │   ├── state-manager.js              ← chrome.storage.session + promise chain
+│   │   ├── webrequest-hls.js             ← HLS chunk + KS capture (generic)
+│   │   └── native-messaging.js           ← NM client (startDownload promise)
+│   └── adapters/
+│       └── skeleton/                     ← reference adapter (placeholders)
+│           ├── README.md                 ← step-by-step adaptation guide
+│           ├── adapter.json              ← adapter metadata
+│           ├── messagepack-decoder.js    ← MAIN world, SignalR binary decoder
+│           ├── chat-hook.js              ← MAIN world, fetch/XHR hooks
+│           ├── chat-bridge.js            ← ISOLATED bridge
+│           ├── materials-hook.js         ← MAIN world
+│           ├── materials-bridge.js       ← ISOLATED bridge
+│           └── metadata-scrape.js        ← ISOLATED, DOM scrape
+├── host/                                 ← Python native messaging host
+│   ├── host.py                           ← entry point (CLI + NM mode)
+│   ├── host.sh                           ← wrapper shell for Chrome NM
+│   ├── install.sh                        ← installs NM manifest + host files
+│   ├── com.your.host.json                ← NM manifest template
+│   ├── core/
+│   │   ├── native_messaging.py           ← stdio protocol
+│   │   ├── hls_to_mp4.py                 ← probe flavors + ffmpeg pipeline
+│   │   ├── subtitle_convert.py           ← VTT → SRT
+│   │   ├── transcript_md.py              ← SRT → Markdown (paragraph heuristics)
+│   │   ├── messagepack.py                ← reference decoder (parity with JS)
+│   │   └── utils.py                      ← sanitize_filename, HTTP helpers
+│   └── adapters/
+│       └── skeleton/                     ← reference Python adapter
+│           ├── chat_to_markdown.py       ← stub
+│           └── materials_downloader.py   ← stub
+├── tests/                                ← pytest suite (71 tests)
+├── docs/
+│   ├── WRITING-AN-ADAPTER.md             ← detailed adapter guide
+│   └── TESTING.md                        ← how to run the suite locally
+└── .github/workflows/test.yml            ← CI (pytest on Ubuntu + macOS)
 ```
 
 ---

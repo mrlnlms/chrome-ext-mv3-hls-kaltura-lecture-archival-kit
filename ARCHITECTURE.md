@@ -270,7 +270,7 @@ network traffic sees the page fetch something like
 a JSON array of messages. But the response body is **zero bytes**.
 
 ```
-[mbx-hook] xhr conversas status=200 rt="json" textLen=0 resp=null
+[chat-hook] xhr conversations status=200 rt="json" textLen=0 resp=null
 ```
 
 Status 200, but no body. Why does the page still render messages? Because
@@ -354,12 +354,12 @@ messages with a magic marker, and relays them to the service worker:
 
 ```js
 // chat-hook.js (MAIN)
-window.postMessage({ __mbxChatCapture: true, label, data }, "*");
+window.postMessage({ __archivalKitChatCapture: true, label, data }, "*");
 
 // chat-bridge.js (ISOLATED)
 window.addEventListener("message", (e) => {
   if (e.source !== window) return;
-  if (!e.data || !e.data.__mbxChatCapture) return;
+  if (!e.data || !e.data.__archivalKitChatCapture) return;
   chrome.runtime.sendMessage({
     type: "chatCapture",
     label: e.data.label,
@@ -463,7 +463,7 @@ before the page's first line of code runs.
 **Same-origin postMessage, but still sanitize.** MAIN-world ↔ ISOLATED-world
 posts use `window.postMessage(data, "*")`. Both ends are on the same origin,
 but the message bus is shared with any script on the page. Always use a
-magic marker (`__mbxChatCapture: true`) and drop messages without it.
+magic marker (`__archivalKitChatCapture: true`) and drop messages without it.
 
 **Response body can only be read once.** `fetch` responses are streams.
 If we read the body to inspect it, the page's own handler will see an
