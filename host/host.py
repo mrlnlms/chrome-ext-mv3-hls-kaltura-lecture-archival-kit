@@ -16,7 +16,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from host.core import hls_to_mp4, utils
+from host.core import hls_to_mp4, native_messaging, utils
 
 
 def _print_progress(progress: hls_to_mp4.FfmpegProgress) -> None:
@@ -88,9 +88,67 @@ def cli_mode(args: argparse.Namespace) -> int:
 
 
 def native_messaging_mode() -> int:
-    """Stub para o modo native messaging (Phase 4)."""
-    print("Native messaging mode: not yet implemented (Phase 4)", file=sys.stderr)
-    return 2
+    """Lê uma request JSON de stdin, roda o pipeline, reporta progresso e encerra.
+
+    Request shape:
+        {
+            "chunks": ["<url>", "<url2>", ...],     # obrigatório
+            "dest": "<dir>",                         # obrigatório
+            "title": "<name>",                       # obrigatório
+            "subtitles_m3u8": "<url>",              # opcional (Phase 4.5+)
+            "metadata": {...},                      # opcional
+        }
+
+    Mensagens de saída:
+        {"type": "progress", "phase": "video", "elapsed_seconds": N, "speed": N}
+        {"type": "done", "folder": "<path>"}
+        {"type": "error", "message": "<str>"}
+
+    Após 'done' ou 'error', chama os._exit() pra matar threads daemon.
+    """
+    import os  # local import; top-level já tem outros
+    try:
+        request = native_messaging.read_message()
+        if request is None:
+            native_messaging.send({"type": "error", "message": "No request on stdin"})
+            os._exit(1)
+
+        chunks = request.get("chunks", [])
+        dest = request.get("dest")
+        title = request.get("title")
+        if not chunks or not dest or not title:
+            native_messaging.send({
+                "type": "error",
+                "message": "Missing required fields (chunks/dest/title)",
+            })
+            os._exit(1)
+
+        dest_folder = Path(dest) / utils.sanitize_filename(title)
+        dest_folder.mkdir(parents=True, exist_ok=True)
+        output_mp4 = dest_folder / f"{utils.sanitize_filename(title)}.mp4"
+
+        native_messaging.send({"type": "progress", "phase": "selecting_flavor"})
+        best = hls_to_mp4.pick_best_flavor(chunks)
+        chunklist = hls_to_mp4.chunklist_url(best)
+
+        def on_progress(p: hls_to_mp4.FfmpegProgress) -> None:
+            native_messaging.send({
+                "type": "progress",
+                "phase": "video",
+                "elapsed_seconds": p.elapsed_seconds,
+                "speed": p.speed,
+            })
+
+        hls_to_mp4.run_ffmpeg(chunklist, output_mp4, on_progress=on_progress)
+
+        native_messaging.send({
+            "type": "done",
+            "folder": str(dest_folder),
+        })
+        os._exit(0)
+    except Exception as exc:
+        native_messaging.send({"type": "error", "message": str(exc)})
+        os._exit(1)
 
 
 def main(argv: list[str] | None = None) -> int:
