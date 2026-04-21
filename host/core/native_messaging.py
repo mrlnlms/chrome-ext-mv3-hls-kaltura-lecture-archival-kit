@@ -10,7 +10,7 @@ Referência: https://developer.chrome.com/docs/apps/nativeMessaging/
 import json
 import struct
 import sys
-from typing import IO, Optional
+from typing import IO, Any, Optional
 
 
 def read_message(stream: Optional[IO[bytes]] = None) -> Optional[dict]:
@@ -25,6 +25,10 @@ def read_message(stream: Optional[IO[bytes]] = None) -> Optional[dict]:
 
     Returns:
         Dicionário com os dados da mensagem, ou None em EOF/stream vazio.
+
+    Raises:
+        json.JSONDecodeError: Se o payload não for JSON válido.
+        UnicodeDecodeError: Se o payload não for UTF-8 válido.
     """
     if stream is None:
         stream = sys.stdin.buffer
@@ -43,7 +47,7 @@ def read_message(stream: Optional[IO[bytes]] = None) -> Optional[dict]:
     return json.loads(raw_payload.decode("utf-8"))
 
 
-def write_message(stream: IO[bytes], payload: dict) -> None:
+def write_message(stream: IO[bytes], payload: dict[str, Any]) -> None:
     """Escreve uma mensagem no stream de saída seguindo o protocolo Native Messaging.
 
     Serializa o payload como JSON UTF-8, precede com 4 bytes de length prefix
@@ -59,7 +63,7 @@ def write_message(stream: IO[bytes], payload: dict) -> None:
     stream.flush()
 
 
-def send(payload: dict) -> None:
+def send(payload: dict[str, Any]) -> None:
     """Atalho para escrever uma mensagem em sys.stdout.buffer.
 
     Equivalente a write_message(sys.stdout.buffer, payload).

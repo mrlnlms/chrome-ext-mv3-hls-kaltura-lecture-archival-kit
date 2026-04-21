@@ -12,6 +12,7 @@ def test_encode_produces_length_prefix_plus_json():
     native_messaging.write_message(buf, {"type": "hello", "value": 42})
     data = buf.getvalue()
     length = struct.unpack("<I", data[:4])[0]
+    assert len(data) == 4 + length
     payload = json.loads(data[4:4 + length].decode("utf-8"))
     assert payload == {"type": "hello", "value": 42}
 
@@ -26,6 +27,12 @@ def test_decode_reads_length_prefix_and_returns_json():
 
 def test_decode_returns_none_on_eof():
     stream = io.BytesIO(b"")
+    assert native_messaging.read_message(stream) is None
+
+
+def test_decode_returns_none_on_truncated_payload():
+    # Anuncia 100 bytes mas entrega só 4 — simula Chrome fechando o pipe no meio
+    stream = io.BytesIO(struct.pack("<I", 100) + b"abcd")
     assert native_messaging.read_message(stream) is None
 
 
