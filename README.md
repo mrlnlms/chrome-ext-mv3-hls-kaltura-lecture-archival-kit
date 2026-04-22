@@ -140,10 +140,16 @@ for the full guide.
 Short version:
 
 1. Copy `extension/adapters/skeleton` to `extension/adapters/my-platform`
-2. Replace URL patterns and DOM selectors with your LMS specifics
-3. Do the same for `host/adapters/skeleton` → `host/adapters/my-platform`
-4. Update `extension/manifest.json`: change `content_scripts` paths and
-   `host_permissions` to point at your platform
+2. In `adapter-boot.js`, register `chrome.webRequest` listeners for your
+   LMS's chat/materials/slides URLs and wire handlers for any custom
+   messages your content scripts will send
+3. Replace URL patterns and DOM selectors in `chat-hook.js`, `materials-hook.js`,
+   and `content.js` with your platform's specifics
+4. Do the same for `host/adapters/skeleton` → `host/adapters/my-platform`
+5. In `extension/background.js`, change the `importScripts("adapters/skeleton/adapter-boot.js")`
+   line to point at `adapters/my-platform/adapter-boot.js`
+6. In `extension/manifest.json`, update `content_scripts.js` paths,
+   `content_scripts.matches`, and `host_permissions` to match your platform
 
 ### Install the native messaging host
 
@@ -187,22 +193,24 @@ chrome-ext-mv3-hls-kaltura-lecture-archival-kit/
 ├── LICENSE            ← MIT
 ├── extension/                            ← Chrome MV3 extension
 │   ├── manifest.json
-│   ├── background.js                     ← service worker entry
+│   ├── background.js                     ← CORE service worker (generic listeners,
+│   │                                       storage, popup messaging, download
+│   │                                       lifecycle). Ends with importScripts
+│   │                                       of the active adapter-boot.js.
 │   ├── popup.html / popup.js
-│   ├── core/
-│   │   ├── state-manager.js              ← chrome.storage.session + promise chain
-│   │   ├── webrequest-hls.js             ← HLS chunk + KS capture (generic)
-│   │   └── native-messaging.js           ← NM client (startDownload promise)
 │   └── adapters/
-│       └── skeleton/                     ← reference adapter (placeholders)
+│       └── skeleton/                     ← reference adapter (no-op stubs)
 │           ├── README.md                 ← step-by-step adaptation guide
 │           ├── adapter.json              ← adapter metadata
-│           ├── messagepack-decoder.js    ← MAIN world, SignalR binary decoder
-│           ├── chat-hook.js              ← MAIN world, fetch/XHR hooks
+│           ├── adapter-boot.js           ← loaded by core via importScripts;
+│           │                                registers platform-specific listeners,
+│           │                                message handlers, self.adapter hooks
+│           ├── content.js                ← ISOLATED, DOM metadata scrape
+│           ├── chat-hook.js              ← MAIN world, fetch/XHR/WebSocket hooks
 │           ├── chat-bridge.js            ← ISOLATED bridge
-│           ├── materials-hook.js         ← MAIN world
+│           ├── materials-hook.js         ← MAIN world, materials-API sniff
 │           ├── materials-bridge.js       ← ISOLATED bridge
-│           └── metadata-scrape.js        ← ISOLATED, DOM scrape
+│           └── messagepack-decoder.js    ← optional SignalR binary decoder
 ├── host/                                 ← Python native messaging host
 │   ├── host.py                           ← entry point (CLI + NM mode)
 │   ├── host.sh                           ← wrapper shell for Chrome NM

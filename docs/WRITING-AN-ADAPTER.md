@@ -33,17 +33,20 @@ the URL patterns, payload shapes, and field mappings specific to one platform.
 
 | File | World | Responsibility |
 | ---- | ----- | -------------- |
+| `adapter-boot.js` | SW | Loaded by the core service worker via `importScripts()`. Registers platform-specific `chrome.webRequest` listeners, handlers for custom `chrome.runtime.onMessage` types, and optionally `self.adapter.{onBeforeDownload, buildJobExtras, prePopulateDownload}` hooks that extend the download flow. |
+| `content.js` | ISOLATED | Reads lecture title, instructor, and date from the DOM using CSS selectors. Uses `MutationObserver` in case the DOM isn't ready at `document_start`. Also handles background commands (e.g. `refreshMetadata`, `startScrollback`). |
 | `chat-hook.js` | MAIN | Monkey-patches `window.fetch`, `XMLHttpRequest`, and optionally `window.WebSocket` to intercept chat API traffic. Runs at `document_start`. |
 | `chat-bridge.js` | ISOLATED | Listens for `window.postMessage` events from `chat-hook.js` and forwards them to the service worker via `chrome.runtime.sendMessage`. |
 | `materials-hook.js` | MAIN | Same pattern as `chat-hook.js`, but targets the materials list API endpoint. |
 | `materials-bridge.js` | ISOLATED | Same pattern as `chat-bridge.js`, but for materials captures. |
-| `metadata-scrape.js` | ISOLATED | Reads lecture title, instructor, and date from the DOM using CSS selectors. Uses `MutationObserver` in case the DOM isn't ready at `document_start`. |
-| `messagepack-decoder.js` | MAIN | Shared decoder — do not modify. Loaded before `chat-hook.js` by `manifest.json`. |
+| `messagepack-decoder.js` | MAIN | Optional shared decoder for SignalR binary frames — include only if your chat hook needs it. Loaded before `chat-hook.js` by `manifest.json`. |
 
 The MAIN / ISOLATED split is a Chrome MV3 constraint: MAIN-world scripts share
 the page's JavaScript context (so they can monkey-patch `window.fetch`);
 ISOLATED-world scripts can call `chrome.runtime.*` APIs. The bridge files exist
-solely to bridge that gap via `postMessage`.
+solely to bridge that gap via `postMessage`. `adapter-boot.js` runs in the
+service worker itself (not a content script) and is the entry point the core
+uses to load everything platform-specific.
 
 ### Python host side (`host/adapters/<name>/`)
 
@@ -337,7 +340,7 @@ Steps:
 
 ---
 
-## 7. Writing `metadata-scrape.js`
+## 7. Writing `content.js` (metadata scrape)
 
 The goal is to extract three fields: `title`, `instructor`, and `date` as
 text strings. Strategy:
@@ -373,32 +376,49 @@ this pattern.
 
 ---
 
-## 8. Updating `manifest.json`
+## 8. Updating `background.js` and `manifest.json`
 
-After writing your adapter files, open `extension/manifest.json` and make
-three changes:
+After writing your adapter files, two places in the extension need to point
+at your new adapter folder.
 
-**Update `content_scripts` paths:**
+**Update the `importScripts` line at the bottom of `extension/background.js`:**
+
+```js
+try {
+  importScripts("adapters/my-platform/adapter-boot.js");
+} catch (e) {
+  console.warn("[core] adapter-boot não carregou:", e.message);
+}
+```
+
+This is what wires your `adapter-boot.js` into the service worker at boot.
+
+**Update `content_scripts` paths in `extension/manifest.json`:**
 
 ```json
 {
   "matches": ["https://your.real.lms.com/*"],
-  "js": [
-    "adapters/my-platform/messagepack-decoder.js",
-    "adapters/my-platform/chat-hook.js"
-  ],
+  "js": ["adapters/my-platform/content.js"],
+  "run_at": "document_idle"
+},
+{
+  "matches": ["https://your.real.lms.com/*"],
+  "js": ["adapters/my-platform/chat-hook.js"],
   "run_at": "document_start",
   "world": "MAIN"
 }
 ```
 
 Replace `skeleton` with `my-platform` in every `content_scripts` entry, and
-replace `https://your-lms.example.com/*` with your LMS origin.
+replace `https://your-lms.example.com/*` with your LMS origin. If your
+chat hook uses the MessagePack decoder, include it before `chat-hook.js`
+in the same `js` array so it loads first.
 
 **Update `host_permissions`:**
 
 ```json
 "host_permissions": [
+  "https://*.kaltura.com/*",
   "https://your.real.lms.com/*",
   "https://chat-api.your.real.lms.com/*",
   "https://materials-api.your.real.lms.com/*"
@@ -406,10 +426,11 @@ replace `https://your-lms.example.com/*` with your LMS origin.
 ```
 
 Add every host that the extension needs to observe via `webRequest` or that
-content scripts will send requests to.
+content scripts will send requests to. `https://*.kaltura.com/*` stays —
+that's the CDN the core HLS listeners use.
 
 **Remove the skeleton entries.** The extension only runs one adapter at a time
-— leave only your platform's `content_scripts` entry.
+— leave only your platform's `content_scripts` entries.
 
 ---
 
@@ -431,7 +452,7 @@ After loading the extension unpacked in Chrome:
 4. **Open the extension popup.** It should show:
    - `Flavors captured: ≥ 1` — HLS chunks were seen
    - `KS: ✓ captured` — session key was extracted
-   - The lecture title from your `metadata-scrape.js`
+   - The lecture title from your `content.js` scrape
 5. **Click Download.** Watch the popup progress lines. Common failure points:
    - `[chat-hook]` lines are missing → `matches` or `HOST` mismatch
    - KS missing → `webRequest` `host_permissions` missing the player domain

@@ -937,7 +937,7 @@ Without `extraHeaders`, your handler sees every request header **except**
 
 ---
 
-## The adapter pattern (conceptual)
+## The adapter pattern
 
 The techniques in this document — HLS interception, SignalR/MessagePack
 decoding, native messaging, ffmpeg piping — generalize to any Kaltura-based
@@ -949,46 +949,105 @@ LMS. What doesn't generalize:
   concepts).
 - The **DOM scrape** for lecture metadata (title, professor, date).
 
-A clean design separates these platform-specific pieces into a
-per-platform **adapter module**:
+This repo separates those platform-specific pieces into a per-platform
+**adapter**. Only the skeleton adapter (all no-ops with TODOs) is tracked
+here; real adapters live outside this repo and are applied locally via a
+script that copies files in and patches `manifest.json` + `background.js`.
+
+### Repo layout
 
 ```
 extension/
-  core/
-    webrequest-chunks.js     # HLS chunk capture (generic)
-    native-messaging.js      # NM bootstrap (generic)
-    popup.html/js            # UI (mostly generic)
+  background.js                 # CORE. Registers generic Kaltura listeners
+                                # (HLS chunks + KS), storage, popup messaging,
+                                # download lifecycle. Ends with:
+                                #   importScripts("adapters/skeleton/adapter-boot.js")
+  manifest.json                 # Default content_scripts + host_permissions
+                                # point at adapters/skeleton/ and your-lms.example.com.
+  popup.html / popup.js         # UI, mostly generic.
   adapters/
-    platform-a/
-      chat-hook.js           # SignalR decode + field mapping
-      materials-hook.js      # URL patterns for this platform
-      metadata-scrape.js     # DOM scrape
-      manifest-patch.json    # host_permissions entries to merge
-    platform-b/
-      ...
+    skeleton/                   # Tracked. No-op stubs with adaptation TODOs.
+      adapter-boot.js           # Loaded by core via importScripts.
+      content.js                # ISOLATED world, DOM metadata scrape.
+      chat-hook.js              # MAIN world, fetch/XHR/WebSocket hooks.
+      chat-bridge.js            # ISOLATED world, relays to service worker.
+      materials-hook.js         # MAIN world, materials-API sniff.
+      materials-bridge.js       # ISOLATED world, relays to service worker.
+      messagepack-decoder.js    # Optional: decoder for SignalR binary frames.
+      adapter.json              # Adapter metadata (host names, etc.).
 host/
-  core/
-    hls_to_mp4.py            # ffmpeg pipeline (generic)
-    native_messaging.py      # stdio protocol (generic)
+  host.py                       # Native messaging entry point (generic).
+  core/                         # HLS → MP4, VTT → SRT, SRT → Markdown, etc.
   adapters/
-    platform-a/
-      chat_to_markdown.py    # field mapping for this platform's chat
-      materials_downloader.py
+    skeleton/                   # Tracked. Stubs for platform-specific Python.
 ```
 
-Building an adapter becomes a matter of:
+### How the core loads an adapter
 
-1. Identifying the platform's chat API host and endpoint shapes.
-2. Writing a MessagePack payload decoder for the platform's invocation
-   arguments.
-3. Identifying the materials API and its Bearer-token flow.
-4. Writing a DOM scrape for the lecture metadata.
-5. Adding the platform's domains to `host_permissions` and
-   `content_scripts.matches`.
+At the bottom of `background.js`:
 
-The reference implementation this document describes bundles core +
-one adapter. Extracting the adapter from core is left to readers who
-want to target a different platform.
+```js
+try {
+  importScripts("adapters/skeleton/adapter-boot.js");
+} catch (e) {
+  console.warn("[core] adapter-boot não carregou:", e.message);
+}
+```
+
+`importScripts()` is synchronous, so the adapter registers its listeners
+before the first event loop tick. This matters: MV3 service workers must
+register listeners synchronously at boot or Chrome won't wake the worker
+on matching events.
+
+To swap in a different adapter, rewrite the path in that `importScripts`
+call (an `apply-to-public-clone.sh`-style script does this mechanically).
+
+### The core ↔ adapter contract
+
+The core exposes these as service-worker globals (plain function
+declarations in `background.js`):
+
+- `queueStateUpdate(fn)` — serializes concurrent writes to `chrome.storage.session`.
+- `getTabState(tabId)`, `setTabState(tabId, state)`, `patchTabState(tabId, patch)`.
+- `notifyPopup(tabId)` — broadcasts a re-render to an open popup.
+
+The adapter may optionally populate `self.adapter` with hooks that
+`startDownload` calls if present:
+
+- `self.adapter.onBeforeDownload(tabId)` — fires right before the job is
+  sent to the host. Good place to trigger chat scrollback, refresh
+  metadata, etc.
+- `self.adapter.buildJobExtras(state)` — returns an object merged into
+  the job payload. Use it to attach chat transcripts, slide URLs, and
+  auth tokens captured by your listeners.
+- `self.adapter.prePopulateDownload(state)` — returns `{ materials,
+  multimedia }`. Pre-populates the popup UI with pending items before
+  the host starts emitting progress events.
+
+If the adapter doesn't set `self.adapter`, the core falls back to a bare
+download job with `{ chunks, ks, title, dest }` — enough for generic
+HLS-to-MP4 with no chat, slides, or materials handling.
+
+### Building an adapter
+
+1. Identify your platform's chat API host, materials API, slides CDN.
+2. Copy `extension/adapters/skeleton/` to `extension/adapters/<yourname>/`
+   and fill in URL patterns, field mappings, and DOM selectors. Follow
+   the TODO comments at the top of each file.
+3. Register additional `chrome.webRequest` listeners in your
+   `adapter-boot.js` for the URLs you identified.
+4. If your chat uses SignalR over a WebSocket with MessagePack payloads,
+   uncomment the WebSocket-wrapper block in `chat-hook.js` and set
+   `TARGET_TO_LABEL` to your platform's SignalR targets.
+5. If you want the download flow to bundle captured chat/slides/tokens
+   into the job, set `self.adapter.buildJobExtras` in your `adapter-boot.js`.
+6. Patch `manifest.json` so `content_scripts.matches`, the `js` paths,
+   and `host_permissions` all point at your adapter path and your LMS's
+   URLs — matches and host_permissions must both cover every origin you
+   care about, or Chrome silently drops events. See the "`host_permissions`
+   vs `content_scripts.matches`" section above.
+7. In `background.js`, change the `importScripts` argument to
+   `"adapters/<yourname>/adapter-boot.js"`.
 
 ---
 
