@@ -68,7 +68,7 @@ def cli_mode(args: argparse.Namespace) -> int:
         return 1
 
     safe_title = utils.sanitize_filename(args.title)
-    dest_dir = Path(args.dest) / safe_title
+    dest_dir = Path(args.dest).expanduser() / safe_title
     dest_dir.mkdir(parents=True, exist_ok=True)
 
     output_path = dest_dir / f"{safe_title}.mp4"
@@ -138,7 +138,7 @@ def native_messaging_mode() -> int:
             })
             os._exit(1)
 
-        dest_folder = Path(dest) / utils.sanitize_filename(title)
+        dest_folder = Path(dest).expanduser() / utils.sanitize_filename(title)
         dest_folder.mkdir(parents=True, exist_ok=True)
         output_mp4 = dest_folder / f"{utils.sanitize_filename(title)}.mp4"
 
