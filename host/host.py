@@ -13,8 +13,11 @@ Dois modos:
 from __future__ import annotations
 
 import argparse
+import importlib
 import sys
 from pathlib import Path
+from types import ModuleType
+from typing import Optional
 
 # Bootstrap sys.path: garante que `host.core` e `host.adapters` sejam
 # importáveis tanto quando invocado via `python -m host.host` (do repo)
@@ -102,20 +105,144 @@ def cli_mode(args: argparse.Namespace) -> int:
     return 0
 
 
+def _import_adapter_pipeline(adapter_name: str) -> Optional[ModuleType]:
+    """Importa dinamicamente o módulo `pipeline` do adapter nomeado.
+
+    Tenta primeiro `host.adapters.<name>.pipeline` (layout do repo); se falhar,
+    tenta `adapters.<name>.pipeline` (layout standalone instalado). Retorna
+    None se nenhum dos dois existir.
+    """
+    for prefix in ("host.adapters", "adapters"):
+        try:
+            return importlib.import_module(f"{prefix}.{adapter_name}.pipeline")
+        except ModuleNotFoundError:
+            continue
+    return None
+
+
+def _basic_pipeline(request: dict) -> None:
+    """Fluxo básico (sem adapter): só remux HLS → MP4.
+
+    Shape mínimo do request: chunks, dest, title. Cria `{dest}/{safe_title}/`
+    e grava `{safe_title}.mp4` dentro. Emite progress/done via native messaging.
+    """
+    chunks = request["chunks"]
+    dest = request["dest"]
+    title = request["title"]
+
+    safe_title = utils.sanitize_filename(title)
+    dest_folder = Path(dest).expanduser() / safe_title
+    dest_folder.mkdir(parents=True, exist_ok=True)
+    output_mp4 = dest_folder / f"{safe_title}.mp4"
+
+    native_messaging.send({"type": "progress", "phase": "selecting_flavor"})
+    best = hls_to_mp4.pick_best_flavor(chunks)
+    chunklist = hls_to_mp4.chunklist_url(best)
+
+    def on_progress(p: hls_to_mp4.FfmpegProgress) -> None:
+        native_messaging.send({
+            "type": "progress",
+            "phase": "video",
+            "elapsed_seconds": p.elapsed_seconds,
+            "speed": p.speed,
+        })
+
+    hls_to_mp4.run_ffmpeg(chunklist, output_mp4, on_progress=on_progress)
+    native_messaging.send({"type": "done", "folder": str(dest_folder)})
+
+
+def _adapter_pipeline(request: dict, adapter_name: str) -> None:
+    """Despacha pro pipeline do adapter nomeado.
+
+    Importa `host.adapters.<name>.pipeline` e chama `run_pipeline` com os campos
+    do request. Os callbacks de progresso do pipeline são encaminhados via
+    native messaging pro SW (que repassa ao popup).
+
+    Shape do request esperado (obrigatórios: chunks, dest, title; restantes opcionais):
+        adapter, chunks, dest, title, langs, ks,
+        chat_captures, slides_url, materials_captures, materials_token
+    """
+    adapter_module = _import_adapter_pipeline(adapter_name)
+    if adapter_module is None:
+        native_messaging.send({
+            "type": "error",
+            "message": f"Adapter '{adapter_name}' não instalado (módulo pipeline não encontrado).",
+        })
+        return
+
+    def on_phase(phase: str) -> None:
+        native_messaging.send({"type": "progress", "phase": phase})
+
+    def on_progress(p: hls_to_mp4.FfmpegProgress) -> None:
+        native_messaging.send({
+            "type": "progress",
+            "phase": "video",
+            "elapsed_seconds": p.elapsed_seconds,
+            "speed": p.speed,
+        })
+
+    def on_materials_list(items: list[dict]) -> None:
+        native_messaging.send({"type": "materials_list", "items": items})
+
+    def on_material_progress(idx: int, status: str, err: Optional[str] = None) -> None:
+        msg: dict = {"type": "material_progress", "index": idx, "status": status}
+        if err:
+            msg["error"] = err
+        native_messaging.send(msg)
+
+    def on_multimedia_progress(item: str, status: str) -> None:
+        native_messaging.send({
+            "type": "multimedia_progress",
+            "item": item,
+            "status": status,
+        })
+
+    dest_root = Path(request["dest"]).expanduser()
+    result = adapter_module.run_pipeline(
+        chunks=request["chunks"],
+        dest=dest_root,
+        title=request["title"],
+        langs=request.get("langs"),
+        ks=request.get("ks"),
+        chat_captures=request.get("chat_captures"),
+        slides_url=request.get("slides_url"),
+        materials_captures=request.get("materials_captures"),
+        materials_token=request.get("materials_token"),
+        on_phase=on_phase,
+        on_progress=on_progress,
+        on_materials_list=on_materials_list,
+        on_material_progress=on_material_progress,
+        on_multimedia_progress=on_multimedia_progress,
+    )
+
+    # Pipeline do adapter devolve o Path do MP4 (`.../base/video/X.mp4`) em
+    # modo normal ou o Path da pasta base direto quando em modo sem-vídeo
+    # (cada adapter pode expor sua própria env var pra isso).
+    if result.suffix.lower() == ".mp4":
+        folder = result.parent.parent
+    else:
+        folder = result
+    native_messaging.send({"type": "done", "folder": str(folder)})
+
+
 def native_messaging_mode() -> int:
     """Lê uma request JSON de stdin, roda o pipeline, reporta progresso e encerra.
 
-    Request shape:
+    Request shape mínimo:
         {
             "chunks": ["<url>", "<url2>", ...],     # obrigatório
             "dest": "<dir>",                         # obrigatório
             "title": "<name>",                       # obrigatório
-            "subtitles_m3u8": "<url>",              # opcional (Phase 4.5+)
-            "metadata": {...},                      # opcional
+            "adapter": "<name>",                     # opcional — se presente,
+                                                     # despacha pro pipeline do adapter.
+            ... (campos extras interpretados pelo adapter) ...
         }
 
-    Mensagens de saída:
-        {"type": "progress", "phase": "video", "elapsed_seconds": N, "speed": N}
+    Mensagens de saída (emitidas conforme o pipeline progride):
+        {"type": "progress", "phase": "<label>", ...}
+        {"type": "multimedia_progress", "item": "<key>", "status": "<state>"}
+        {"type": "materials_list", "items": [...]}
+        {"type": "material_progress", "index": N, "status": "<state>", "error"?: "..."}
         {"type": "done", "folder": "<path>"}
         {"type": "error", "message": "<str>"}
 
@@ -128,7 +255,7 @@ def native_messaging_mode() -> int:
             native_messaging.send({"type": "error", "message": "No request on stdin"})
             os._exit(1)
 
-        chunks = request.get("chunks", [])
+        chunks = request.get("chunks")
         dest = request.get("dest")
         title = request.get("title")
         if not chunks or not dest or not title:
@@ -138,28 +265,11 @@ def native_messaging_mode() -> int:
             })
             os._exit(1)
 
-        dest_folder = Path(dest).expanduser() / utils.sanitize_filename(title)
-        dest_folder.mkdir(parents=True, exist_ok=True)
-        output_mp4 = dest_folder / f"{utils.sanitize_filename(title)}.mp4"
-
-        native_messaging.send({"type": "progress", "phase": "selecting_flavor"})
-        best = hls_to_mp4.pick_best_flavor(chunks)
-        chunklist = hls_to_mp4.chunklist_url(best)
-
-        def on_progress(p: hls_to_mp4.FfmpegProgress) -> None:
-            native_messaging.send({
-                "type": "progress",
-                "phase": "video",
-                "elapsed_seconds": p.elapsed_seconds,
-                "speed": p.speed,
-            })
-
-        hls_to_mp4.run_ffmpeg(chunklist, output_mp4, on_progress=on_progress)
-
-        native_messaging.send({
-            "type": "done",
-            "folder": str(dest_folder),
-        })
+        adapter_name = request.get("adapter")
+        if adapter_name:
+            _adapter_pipeline(request, adapter_name)
+        else:
+            _basic_pipeline(request)
         os._exit(0)
     except Exception as exc:
         native_messaging.send({"type": "error", "message": str(exc)})

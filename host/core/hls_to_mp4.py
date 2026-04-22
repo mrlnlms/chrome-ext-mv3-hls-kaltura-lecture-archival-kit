@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable, Optional
@@ -38,6 +39,28 @@ FFMPEG_TIME_RE = re.compile(r"time=(\d+):(\d+):(\d+(?:\.\d+)?)")
 # Exemplo: "speed= 1.25x"  ou  "speed=1.25x"
 FFMPEG_SPEED_RE = re.compile(r"speed=\s*([\d.]+)x")
 
+# URL do master playlist público do Kaltura (sem token KS).
+# Usada pra enumerar legendas — o master autenticado costuma listar só
+# um subset das flavors, mas traz as trilhas de legenda que interessam.
+PUBLIC_MASTER_URL = (
+    "https://cdnapisec.kaltura.com/p/{partner}/sp/{sub}/playManifest"
+    "/entryId/{entry}/format/applehttp/protocol/https/a.m3u8"
+)
+
+# URL do master autenticado (com token KS). Mantida aqui pra referência —
+# pode ser útil pra diagnóstico ou acesso a conteúdo restrito.
+AUTH_MASTER_URL = (
+    "https://cdnapisec.kaltura.com/p/{partner}/sp/{sub}/playManifest"
+    "/entryId/{entry}/ks/{ks}/format/applehttp/protocol/https/a.m3u8"
+)
+
+# Captura linhas #EXT-X-MEDIA:TYPE=SUBTITLES,... do master HLS.
+# Grupo 'attrs' contém a lista key=value separada por vírgula.
+SUB_MEDIA_RE = re.compile(r'^#EXT-X-MEDIA:TYPE=SUBTITLES,(?P<attrs>.+)$', re.MULTILINE)
+
+# Captura pares key=value (com ou sem aspas) em atributos HLS.
+HLS_ATTR_RE = re.compile(r'([A-Z0-9-]+)=("[^"]*"|[^,]+)')
+
 
 # ---------------------------------------------------------------------------
 # Dataclasses
@@ -57,6 +80,14 @@ class FfmpegProgress:
     """Progresso reportado pelo ffmpeg em uma linha de stderr."""
     elapsed_seconds: float
     speed: Optional[float]
+
+
+@dataclass(frozen=True)
+class SubtitleTrack:
+    """Trilha de legenda extraída do master HLS."""
+    lang: str
+    name: str
+    url: str
 
 
 # ---------------------------------------------------------------------------
@@ -244,4 +275,93 @@ def run_ffmpeg(
         raise RuntimeError(
             f"ffmpeg encerrou com código {proc.returncode}.\n"
             f"Últimas linhas do stderr:\n{tail_text}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Master playlist público e legendas
+# ---------------------------------------------------------------------------
+
+def fetch_public_master(info: ChunkInfo) -> tuple[str, str]:
+    """Busca o master playlist público (sem token KS) do Kaltura.
+
+    Usado pra enumerar trilhas de legenda, que costumam estar presentes no
+    master público mesmo quando o vídeo requer autenticação.
+
+    Args:
+        info: ChunkInfo extraído de uma URL de chunk.
+
+    Returns:
+        Tupla (master_url, master_text).
+    """
+    url = PUBLIC_MASTER_URL.format(
+        partner=info.partner_id, sub=info.sub, entry=info.entry_id
+    )
+    body = utils.http_get_bytes(url)
+    return url, body.decode("utf-8")
+
+
+def extract_subtitles(master_text: str, master_url: str) -> list[SubtitleTrack]:
+    """Parseia linhas #EXT-X-MEDIA:TYPE=SUBTITLES do master HLS.
+
+    Resolve a URI de cada trilha contra o master_url pra produzir URLs
+    absolutas. Trilhas sem URI são ignoradas silenciosamente.
+
+    Args:
+        master_text: Corpo do master playlist.
+        master_url: URL de onde veio o master (usada como base pra resolver URIs relativas).
+
+    Returns:
+        Lista de SubtitleTrack com lang, name e URL absoluta.
+    """
+    tracks: list[SubtitleTrack] = []
+    for m in SUB_MEDIA_RE.finditer(master_text):
+        attrs = {k: v.strip('"') for k, v in HLS_ATTR_RE.findall(m.group("attrs"))}
+        uri = attrs.get("URI")
+        if not uri:
+            continue
+        lang = attrs.get("LANGUAGE", "und")
+        name = attrs.get("NAME", lang)
+        absolute = urllib.parse.urljoin(master_url, uri)
+        tracks.append(SubtitleTrack(lang=lang, name=name, url=absolute))
+    return tracks
+
+
+def lang_short(lang_attr: str) -> str:
+    """Normaliza um LANGUAGE do HLS (ex: 'pt-BR', 'en_US') em código curto ('pt', 'en')."""
+    return lang_attr.lower().split("-")[0].split("_")[0][:2]
+
+
+# ---------------------------------------------------------------------------
+# Download de legendas
+# ---------------------------------------------------------------------------
+
+def download_subtitle(url: str, out_path: Path) -> None:
+    """Baixa uma trilha de legenda via ffmpeg e grava como SRT.
+
+    Delega ao ffmpeg a detecção de formato: se a URL é playlist HLS de legendas,
+    ffmpeg baixa os segments e concatena; se é VTT direto, converte pra SRT;
+    se já é SRT, copia. O formato de saída é inferido pela extensão de `out_path`.
+
+    Args:
+        url: URL da trilha (playlist HLS ou arquivo VTT/SRT direto).
+        out_path: Caminho do arquivo de saída (tipicamente .srt).
+
+    Raises:
+        RuntimeError: se o ffmpeg terminar com código != 0.
+    """
+    cmd = ["ffmpeg", "-y", "-i", url, str(out_path)]
+    result = subprocess.run(
+        cmd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if result.returncode != 0:
+        tail = "\n".join((result.stderr or "").splitlines()[-30:])
+        raise RuntimeError(
+            f"ffmpeg encerrou com código {result.returncode} ao baixar legenda.\n"
+            f"Últimas linhas do stderr:\n{tail}"
         )
