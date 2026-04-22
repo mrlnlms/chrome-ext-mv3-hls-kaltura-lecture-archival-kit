@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
-# Wrapper pro host Python. Usado pelo native messaging manifest porque
-# (1) scripts .py podem não ter permissão de exec dependendo do FS;
-# (2) macOS Sequoia bloqueia exec em ~/Desktop/, e o installer copia
-# este wrapper pra ~/.host-dir/ onde a restrição não se aplica.
+# Wrapper pro native messaging host. Hardcoda --native-messaging porque o Chrome
+# só passa chrome-extension://ID/ + --parent-window=0 como args — não sinaliza
+# que é modo NM. Sem a flag, o host cai em CLI e erra imediatamente.
+#
+# Também loga stderr do Python em $DIR/debug.log pra ajudar debug em caso
+# de falha (o Chrome só reporta "Native host has exited" sem detalhes).
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Adiciona /usr/local/bin + /opt/homebrew/bin ao PATH pra encontrar ffmpeg
-# quando invocado pelo Chrome (que roda com PATH mínimo).
-export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
-exec python3 "$DIR/host.py" "$@"
+LOG="$DIR/debug.log"
+# Adiciona /opt/homebrew/bin e /usr/local/bin ao PATH pra encontrar ffmpeg
+# quando invocado pelo Chrome (PATH mínimo).
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+
+echo "[$(date +%H:%M:%S)] === host invoked args=$*" >> "$LOG"
+echo "[$(date +%H:%M:%S)] which python3=$(which python3)" >> "$LOG"
+
+exec python3 "$DIR/host.py" --native-messaging "$@" 2>>"$LOG"
