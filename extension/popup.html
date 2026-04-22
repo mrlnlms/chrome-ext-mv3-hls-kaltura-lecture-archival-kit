@@ -1,59 +1,148 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pt-BR">
 <head>
-  <meta charset="UTF-8" />
-  <title>Kaltura Lecture Archival Kit</title>
+  <meta charset="UTF-8">
+  <title>Kaltura Archival Kit</title>
   <style>
-    body { font-family: system-ui, sans-serif; font-size: 13px; width: 360px; padding: 12px; margin: 0; }
-    h1 { font-size: 14px; margin: 0 0 8px 0; }
-    h2 { font-size: 12px; margin: 10px 0 4px 0; color: #444; text-transform: uppercase; letter-spacing: 0.5px; }
-    .row { margin: 6px 0; display: flex; justify-content: space-between; }
-    .label { color: #666; }
-    .value { font-family: "SF Mono", Menlo, monospace; }
-    button { width: 100%; padding: 8px; margin-top: 10px; font-size: 13px; }
-    button:disabled { opacity: 0.5; cursor: not-allowed; }
-    .download-section { margin-top: 12px; padding-top: 10px; border-top: 1px solid #eee; display: none; }
-    .download-section.active { display: block; }
-    .phase { font-weight: 600; }
-    .error { color: #c33; }
-    .done { color: #393; }
-    .folder { font-size: 11px; color: #666; word-break: break-all; margin-top: 4px; }
-    .list-section { margin-top: 10px; display: none; }
-    .list-section.active { display: block; }
-    .item-list { list-style: none; padding: 0; margin: 0; max-height: 180px; overflow-y: auto; }
-    .item-list li { display: flex; align-items: baseline; gap: 6px; padding: 2px 0; font-size: 12px; }
-    .item-list .icon { width: 14px; text-align: center; flex-shrink: 0; }
-    .item-list .label-name { color: #666; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .item-list .folder-hint { color: #999; font-size: 10px; margin-right: 4px; }
-    .item-list li.done .label-name { color: #393; }
-    .item-list li.error .label-name { color: #c33; }
-    .item-list li.skipped .label-name, .item-list li.unavailable .label-name { color: #aaa; font-style: italic; }
-    .count-badge { font-weight: normal; color: #999; font-size: 11px; text-transform: none; letter-spacing: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 13px;
+      width: 380px;
+      padding: 12px;
+      margin: 0;
+    }
+    h1 { font-size: 14px; margin: 0 0 10px 0; }
+    .row {
+      padding: 6px 8px;
+      background: #f4f4f4;
+      border-radius: 4px;
+      margin-bottom: 6px;
+      font-size: 12px;
+    }
+    .row strong { color: #333; }
+    .ok { color: #1a7f1a; }
+    .empty { color: #888; }
+    .err { color: #b32020; }
+    .flavors-list {
+      font-family: monospace;
+      font-size: 11px;
+      color: #555;
+      margin-top: 4px;
+      word-break: break-all;
+    }
+    button {
+      width: 100%;
+      padding: 10px;
+      background: #1a7f1a;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 8px;
+    }
+    button:hover { background: #156315; }
+    button:disabled { background: #aaa; cursor: not-allowed; }
+    button.cancel { background: #b32020; }
+    button.cancel:hover { background: #8d1919; }
+    .download-status {
+      padding: 8px 10px;
+      background: #fff8e1;
+      border: 1px solid #ffe082;
+      border-radius: 4px;
+      margin-top: 8px;
+      font-size: 12px;
+    }
+    .download-status.done { background: #e8f5e9; border-color: #a5d6a7; }
+    .download-status.error { background: #ffebee; border-color: #ef9a9a; }
+    .download-status.cancelled { background: #eceff1; border-color: #b0bec5; }
+    .download-status .phase { font-weight: 600; }
+    .download-status .path { font-family: monospace; font-size: 11px; color: #444; word-break: break-all; margin-top: 4px; }
+    .progress-bar {
+      position: relative;
+      height: 10px;
+      background: #e0e0e0;
+      border-radius: 5px;
+      overflow: hidden;
+      margin-top: 8px;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #1a7f1a, #2ea32e);
+      transition: width 0.4s ease;
+      border-radius: 5px;
+    }
+    .progress-fill.indeterminate {
+      width: 40% !important;
+      background: linear-gradient(90deg, #e0e0e0 0%, #1a7f1a 50%, #e0e0e0 100%);
+      animation: kak-indeterminate 1.3s linear infinite;
+    }
+    @keyframes kak-indeterminate {
+      0%   { transform: translateX(-100%); }
+      100% { transform: translateX(250%); }
+    }
+    .progress-text {
+      display: flex;
+      justify-content: space-between;
+      font-family: monospace;
+      font-size: 11px;
+      color: #444;
+      margin-top: 4px;
+    }
+    .phase-tag { color: #aaa; font-size: 10px; margin-top: 12px; text-align: right; }
+    .section {
+      margin-top: 10px;
+      padding: 6px 8px;
+      background: #f4f4f4;
+      border-radius: 4px;
+    }
+    .section-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: #555;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      margin-bottom: 4px;
+    }
+    .mat-item {
+      font-size: 12px;
+      padding: 2px 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .mat-idle    { color: #999; }
+    .mat-pending { color: #888; }
+    .mat-dl      { color: #1a7f1a; font-weight: 600; }
+    .mat-done    { color: #333; }
+    .mat-err     { color: #b32020; }
+    .mat-skip    { color: #aaa; text-decoration: line-through; }
   </style>
 </head>
 <body>
-  <h1>Kaltura Lecture Archival Kit</h1>
-  <div class="row"><span class="label">Flavors captured:</span> <span id="flavor-count" class="value">…</span></div>
-  <div class="row"><span class="label">KS:</span> <span id="ks-status" class="value">…</span></div>
-  <button id="download-btn" disabled>Download</button>
-
-  <div id="multimedia-section" class="list-section">
-    <h2>Multimídia</h2>
-    <ul id="multimedia-list" class="item-list"></ul>
+  <h1>Kaltura Archival Kit</h1>
+  <div class="row">
+    <strong>Flavors capturadas:</strong> <span id="flavors-count">—</span>
+    <div id="flavors-list" class="flavors-list"></div>
   </div>
-
-  <div id="materials-section" class="list-section">
-    <h2>Materiais <span id="materials-count" class="count-badge"></span></h2>
-    <ul id="materials-list" class="item-list"></ul>
+  <div class="row">
+    <strong>ks:</strong> <span id="ks-status">—</span>
   </div>
-
-  <div id="download-section" class="download-section">
-    <div class="row"><span class="label">Phase:</span> <span id="dl-phase" class="value phase">…</span></div>
-    <div class="row"><span class="label">Progress:</span> <span id="dl-progress" class="value">—</span></div>
-    <div id="dl-folder" class="folder"></div>
-    <div id="dl-error" class="error"></div>
+  <div class="row">
+    <strong>Metadata:</strong> <span id="metadata-status">—</span>
   </div>
-
-  <script type="module" src="popup.js"></script>
+  <div id="multimedia-section" class="section" style="display:none">
+    <div class="section-title">Multimídia</div>
+    <div id="multimedia-list"></div>
+  </div>
+  <div id="materials-section" class="section" style="display:none">
+    <div class="section-title">Materiais</div>
+    <div id="materials-list"></div>
+  </div>
+  <div id="download-status" class="download-status" style="display:none"></div>
+  <button id="download-btn" disabled>Baixar</button>
+  <button id="cancel-btn" class="cancel" style="display:none">Cancelar</button>
+  <script src="popup.js"></script>
 </body>
 </html>
