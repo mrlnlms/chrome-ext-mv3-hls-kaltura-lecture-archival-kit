@@ -25,6 +25,105 @@ function formatSeconds(s) {
   return `${mm}:${ss}`;
 }
 
+// Mapeia status → ícone. Cobre os estados que o host emite
+// (multimedia_progress / material_progress / done / error) + os estados
+// pré-populados pelo adapter ("pending", "unavailable").
+const STATUS_ICON = {
+  pending: "○",
+  downloading: "⏳",
+  done: "✅",
+  error: "❌",
+  skipped: "↷",
+  unavailable: "—",
+};
+
+// Ordem canônica dos items de multimídia (video primeiro, depois subs por idioma,
+// depois slides). Items não listados caem no fim preservando ordem de inserção.
+const MM_ORDER = ["video", "sub_pt", "sub_en", "sub_es", "slides"];
+
+const MM_LABELS = {
+  video: "Vídeo",
+  sub_pt: "Legenda PT",
+  sub_en: "Legenda EN",
+  sub_es: "Legenda ES",
+  slides: "Slides",
+};
+
+function renderMultimedia(mm) {
+  const section = document.getElementById("multimedia-section");
+  const list = document.getElementById("multimedia-list");
+  if (!mm || Object.keys(mm).length === 0) {
+    section.classList.remove("active");
+    list.innerHTML = "";
+    return;
+  }
+  section.classList.add("active");
+
+  const keys = Object.keys(mm).sort((a, b) => {
+    const ia = MM_ORDER.indexOf(a);
+    const ib = MM_ORDER.indexOf(b);
+    if (ia === -1 && ib === -1) return a.localeCompare(b);
+    if (ia === -1) return 1;
+    if (ib === -1) return -1;
+    return ia - ib;
+  });
+
+  list.innerHTML = "";
+  for (const key of keys) {
+    const status = mm[key];
+    const li = document.createElement("li");
+    li.className = status;
+    const icon = document.createElement("span");
+    icon.className = "icon";
+    icon.textContent = STATUS_ICON[status] || "?";
+    const label = document.createElement("span");
+    label.className = "label-name";
+    label.textContent = MM_LABELS[key] || key;
+    li.appendChild(icon);
+    li.appendChild(label);
+    list.appendChild(li);
+  }
+}
+
+function renderMaterials(materials) {
+  const section = document.getElementById("materials-section");
+  const list = document.getElementById("materials-list");
+  const count = document.getElementById("materials-count");
+  if (!materials || materials.length === 0) {
+    section.classList.remove("active");
+    list.innerHTML = "";
+    count.textContent = "";
+    return;
+  }
+  section.classList.add("active");
+  const done = materials.filter((m) => m.status === "done").length;
+  count.textContent = `(${done}/${materials.length})`;
+
+  list.innerHTML = "";
+  for (const m of materials) {
+    const li = document.createElement("li");
+    li.className = m.status || "pending";
+    const icon = document.createElement("span");
+    icon.className = "icon";
+    icon.textContent = STATUS_ICON[m.status] || STATUS_ICON.pending;
+    li.appendChild(icon);
+
+    if (m.folder) {
+      const folder = document.createElement("span");
+      folder.className = "folder-hint";
+      folder.textContent = `[${m.folder}]`;
+      li.appendChild(folder);
+    }
+
+    const name = document.createElement("span");
+    name.className = "label-name";
+    name.title = m.filename || "";
+    name.textContent = m.filename || "(sem nome)";
+    li.appendChild(name);
+    list.appendChild(li);
+  }
+}
+
 async function render() {
   try {
     const state = await loadState();
@@ -35,23 +134,35 @@ async function render() {
     document.getElementById("ks-status").textContent = state.ks ? "✓ captured" : "✗ missing";
 
     const btn = document.getElementById("download-btn");
+    const dl = state.download;
     const canDownload = flavorCount > 0 && !!state.ks;
-    const isInProgress = state.download && ["starting", "selecting_flavor", "video"].includes(state.download.phase);
+    const isInProgress = dl && dl.status === "running";
     btn.disabled = !canDownload || isInProgress;
 
-    const dl = state.download;
     const section = document.getElementById("download-section");
     if (dl) {
       section.classList.add("active");
-      document.getElementById("dl-phase").textContent = dl.phase;
-      document.getElementById("dl-phase").className = "value phase" + (dl.phase === "error" ? " error" : dl.phase === "done" ? " done" : "");
-      if (dl.phase === "video" && dl.progress) {
-        document.getElementById("dl-progress").textContent = `${formatSeconds(dl.progress.elapsed_seconds)} @ ${dl.progress.speed != null ? dl.progress.speed + "x" : "—"}`;
+      document.getElementById("dl-phase").textContent = dl.phase || "—";
+      document.getElementById("dl-phase").className =
+        "value phase" +
+        (dl.status === "error" ? " error" : dl.status === "done" ? " done" : "");
+
+      if (dl.progress) {
+        const elapsed = dl.progress.elapsed;
+        const speed = dl.progress.speed;
+        const speedText = speed != null ? speed + "x" : "—";
+        document.getElementById("dl-progress").textContent = `${formatSeconds(elapsed)} @ ${speedText}`;
       } else {
         document.getElementById("dl-progress").textContent = "—";
       }
-      document.getElementById("dl-folder").textContent = dl.phase === "done" && dl.folder ? `Saved: ${dl.folder}` : "";
-      document.getElementById("dl-error").textContent = dl.phase === "error" ? (dl.error || "Unknown error") : "";
+
+      renderMultimedia(dl.multimedia);
+      renderMaterials(dl.materials);
+
+      document.getElementById("dl-folder").textContent =
+        dl.status === "done" && dl.path ? `Saved: ${dl.path}` : "";
+      document.getElementById("dl-error").textContent =
+        dl.status === "error" ? (dl.error || "Unknown error") : "";
     } else {
       section.classList.remove("active");
     }
@@ -68,7 +179,6 @@ document.getElementById("download-btn").addEventListener("click", async () => {
   try {
     const resp = await chrome.runtime.sendMessage({ type: "startDownload", tabId: activeTabId });
     if (!resp || !resp.ok) {
-      // render() vai mostrar o erro vindo de state.download
       console.warn("[popup] startDownload responded:", resp);
     }
   } catch (e) {

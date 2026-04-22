@@ -54,7 +54,8 @@ def test_main_ignores_unknown_args(monkeypatch):
 
 
 def test_native_messaging_mode_happy_path(monkeypatch, tmp_path):
-    """Valida o fluxo NM: read request → progress → done."""
+    """Valida o fluxo NM: read request → phase(s) → done (sem progress
+    porque ffmpeg é mockado e não emite ticks de progresso)."""
     from host.core import native_messaging, hls_to_mp4
 
     sent_messages = []
@@ -79,10 +80,13 @@ def test_native_messaging_mode_happy_path(monkeypatch, tmp_path):
         host.native_messaging_mode()
     assert exc_info.value.code == 0
 
-    # Valida mensagens enviadas
+    # Valida shape das mensagens (contrato camelCase do background.js).
     types = [m["type"] for m in sent_messages]
-    assert "progress" in types
+    assert "phase" in types, f"esperava phase em types, veio {types}"
     assert types[-1] == "done"
+    # done deve trazer path (não folder — esse é o shape antigo pré-contrato).
+    assert "path" in sent_messages[-1]
+    assert "folder" not in sent_messages[-1]
 
 
 def test_native_messaging_mode_missing_fields(monkeypatch):

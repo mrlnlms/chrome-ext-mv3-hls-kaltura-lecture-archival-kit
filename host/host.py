@@ -124,7 +124,9 @@ def _basic_pipeline(request: dict) -> None:
     """Fluxo básico (sem adapter): só remux HLS → MP4.
 
     Shape mínimo do request: chunks, dest, title. Cria `{dest}/{safe_title}/`
-    e grava `{safe_title}.mp4` dentro. Emite progress/done via native messaging.
+    e grava `{safe_title}.mp4` dentro. Emite phase/progress/done via native
+    messaging no contrato esperado pelo background.js (camelCase + campos
+    compactos `elapsed`/`speed`).
     """
     chunks = request["chunks"]
     dest = request["dest"]
@@ -135,20 +137,21 @@ def _basic_pipeline(request: dict) -> None:
     dest_folder.mkdir(parents=True, exist_ok=True)
     output_mp4 = dest_folder / f"{safe_title}.mp4"
 
-    native_messaging.send({"type": "progress", "phase": "selecting_flavor"})
+    native_messaging.send({"type": "phase", "msg": "selecting_flavor"})
     best = hls_to_mp4.pick_best_flavor(chunks)
     chunklist = hls_to_mp4.chunklist_url(best)
+
+    native_messaging.send({"type": "phase", "msg": "video"})
 
     def on_progress(p: hls_to_mp4.FfmpegProgress) -> None:
         native_messaging.send({
             "type": "progress",
-            "phase": "video",
-            "elapsed_seconds": p.elapsed_seconds,
+            "elapsed": p.elapsed_seconds,
             "speed": p.speed,
         })
 
     hls_to_mp4.run_ffmpeg(chunklist, output_mp4, on_progress=on_progress)
-    native_messaging.send({"type": "done", "folder": str(dest_folder)})
+    native_messaging.send({"type": "done", "path": str(dest_folder)})
 
 
 def _adapter_pipeline(request: dict, adapter_name: str) -> None:
@@ -171,28 +174,27 @@ def _adapter_pipeline(request: dict, adapter_name: str) -> None:
         return
 
     def on_phase(phase: str) -> None:
-        native_messaging.send({"type": "progress", "phase": phase})
+        native_messaging.send({"type": "phase", "msg": phase})
 
     def on_progress(p: hls_to_mp4.FfmpegProgress) -> None:
         native_messaging.send({
             "type": "progress",
-            "phase": "video",
-            "elapsed_seconds": p.elapsed_seconds,
+            "elapsed": p.elapsed_seconds,
             "speed": p.speed,
         })
 
     def on_materials_list(items: list[dict]) -> None:
-        native_messaging.send({"type": "materials_list", "items": items})
+        native_messaging.send({"type": "materialsList", "items": items})
 
     def on_material_progress(idx: int, status: str, err: Optional[str] = None) -> None:
-        msg: dict = {"type": "material_progress", "index": idx, "status": status}
+        msg: dict = {"type": "materialProgress", "index": idx, "status": status}
         if err:
             msg["error"] = err
         native_messaging.send(msg)
 
     def on_multimedia_progress(item: str, status: str) -> None:
         native_messaging.send({
-            "type": "multimedia_progress",
+            "type": "multimediaProgress",
             "item": item,
             "status": status,
         })
@@ -222,7 +224,7 @@ def _adapter_pipeline(request: dict, adapter_name: str) -> None:
         folder = result.parent.parent
     else:
         folder = result
-    native_messaging.send({"type": "done", "folder": str(folder)})
+    native_messaging.send({"type": "done", "path": str(folder)})
 
 
 def native_messaging_mode() -> int:
@@ -238,12 +240,13 @@ def native_messaging_mode() -> int:
             ... (campos extras interpretados pelo adapter) ...
         }
 
-    Mensagens de saída (emitidas conforme o pipeline progride):
-        {"type": "progress", "phase": "<label>", ...}
-        {"type": "multimedia_progress", "item": "<key>", "status": "<state>"}
-        {"type": "materials_list", "items": [...]}
-        {"type": "material_progress", "index": N, "status": "<state>", "error"?: "..."}
-        {"type": "done", "folder": "<path>"}
+    Mensagens de saída (contrato do background.js — camelCase):
+        {"type": "phase", "msg": "<label>"}
+        {"type": "progress", "elapsed": N, "speed": N}
+        {"type": "multimediaProgress", "item": "<key>", "status": "<state>"}
+        {"type": "materialsList", "items": [...]}
+        {"type": "materialProgress", "index": N, "status": "<state>", "error"?: "..."}
+        {"type": "done", "path": "<folder>"}
         {"type": "error", "message": "<str>"}
 
     Após 'done' ou 'error', chama os._exit() pra matar threads daemon.
