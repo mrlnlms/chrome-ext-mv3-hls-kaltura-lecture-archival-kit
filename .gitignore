@@ -42,3 +42,11 @@ htmlcov/
 
 # Extension signing key (public key goes inline in manifest.json)
 .keys/
+
+# Real adapters applied locally via scripts — these contain
+# platform-specific URLs and are NOT part of the generic reference.
+# Only the skeleton adapter is tracked.
+extension/adapters/*/
+!extension/adapters/skeleton/
+host/adapters/*/
+!host/adapters/skeleton/

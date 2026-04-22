@@ -18,13 +18,17 @@
     "https://your-lms-api.example.com/*"
   ],
   "background": {
-    "service_worker": "background.js",
-    "type": "module"
+    "service_worker": "background.js"
   },
   "content_scripts": [
     {
       "matches": ["https://your-lms.example.com/*"],
-      "js": ["adapters/skeleton/messagepack-decoder.js", "adapters/skeleton/chat-hook.js"],
+      "js": ["adapters/skeleton/content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://your-lms.example.com/*"],
+      "js": ["adapters/skeleton/chat-hook.js"],
       "run_at": "document_start",
       "world": "MAIN"
     },
@@ -43,11 +47,6 @@
       "matches": ["https://your-lms.example.com/*"],
       "js": ["adapters/skeleton/materials-bridge.js"],
       "run_at": "document_start"
-    },
-    {
-      "matches": ["https://your-lms.example.com/*"],
-      "js": ["adapters/skeleton/metadata-scrape.js"],
-      "run_at": "document_idle"
     }
   ],
   "action": {
