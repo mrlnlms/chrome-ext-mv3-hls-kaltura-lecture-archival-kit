@@ -239,6 +239,10 @@ def run_ffmpeg(
         "-i", chunklist,
         "-c", "copy",
         "-bsf:a", "aac_adtstoasc",
+        # Força formato MP4 explicitamente: o chamador costuma escrever em
+        # arquivo temporário `.mp4.part` (atomic rename via pipeline) e ffmpeg
+        # não consegue inferir o formato pela extensão `.part`.
+        "-f", "mp4",
         str(output_path),
     ]
 
