@@ -16,7 +16,22 @@ import argparse
 import sys
 from pathlib import Path
 
-from host.core import hls_to_mp4, native_messaging, utils
+# Bootstrap sys.path: garante que `host.core` e `host.adapters` sejam
+# importáveis tanto quando invocado via `python -m host.host` (do repo)
+# quanto standalone (instalado em ~/.kaltura-lecture-host/ pelo install.sh,
+# invocado como `python3 /caminho/ate/host.py`).
+_this_file = Path(__file__).resolve()
+_parent = _this_file.parent.parent
+if str(_parent) not in sys.path:
+    sys.path.insert(0, str(_parent))
+
+try:
+    from host.core import hls_to_mp4, native_messaging, utils
+except ModuleNotFoundError:
+    # Standalone: o host.py foi copiado diretamente sem a subpasta `host/`.
+    # Adiciona o próprio diretório ao sys.path e importa core/ como top-level.
+    sys.path.insert(0, str(_this_file.parent))
+    from core import hls_to_mp4, native_messaging, utils  # type: ignore
 
 
 def _print_progress(progress: hls_to_mp4.FfmpegProgress) -> None:

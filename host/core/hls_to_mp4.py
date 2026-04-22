@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable, Optional
 
-from host.core import utils
+from . import utils
 
 # ---------------------------------------------------------------------------
 # Constantes / regex
