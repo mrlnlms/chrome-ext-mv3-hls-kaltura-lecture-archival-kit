@@ -20,6 +20,22 @@ cannot know about:
    and date
 5. **Auth** — how Bearer tokens (or cookies, or session keys) are acquired
 
+## How the core loads your adapter
+
+The entry point is `adapter-boot.js`, which the core service worker loads
+via `importScripts()` at boot:
+
+```js
+// At the bottom of extension/background.js (generic core):
+importScripts("adapters/skeleton/adapter-boot.js");
+```
+
+`adapter-boot.js` runs inside the service worker scope. It's where you
+register `chrome.webRequest` listeners for your platform's URLs,
+`chrome.runtime.onMessage` handlers for custom payloads your content
+scripts send, and (optionally) `self.adapter.{onBeforeDownload,
+buildJobExtras, prePopulateDownload}` hooks that extend the download flow.
+
 See [`../../../ARCHITECTURE.md`](../../../ARCHITECTURE.md) for the rationale
 behind each piece — this README focuses on "how to adapt", not "why".
 
@@ -77,15 +93,39 @@ In your new `chat-hook.js`:
 Same approach: find the materials API call in DevTools, note the host
 and path, update `HOST` and the endpoint matcher.
 
-### 6. Update `metadata-scrape.js`
+### 6. Update `content.js`
 
 In DevTools → Elements, find the DOM elements that hold the lecture
 title, instructor name, and date. Update the CSS selectors in
 `scrapeMetadata()`.
 
-### 7. Update `manifest.json`
+### 7. Fill in `adapter-boot.js`
 
-At the repository root, edit `extension/manifest.json`:
+This is the service-worker entry point the core imports. Wire up:
+
+- `chrome.webRequest` listeners for your chat API, materials API, slides
+  CDN, and any auth-token sources (use the `extraHeaders` spec to read
+  `Authorization`)
+- `chrome.runtime.onMessage` handlers for the custom message types your
+  bridges send (`setMetadata`, `setChatSnapshot`, etc. — match whatever
+  your content scripts emit)
+- Optional `self.adapter.buildJobExtras(state)` to attach captured chat /
+  slides / tokens to the job sent to the host, and
+  `self.adapter.onBeforeDownload(tabId)` if you need to trigger scrollback
+  or refresh metadata before the download fires
+
+### 8. Update `background.js` and `manifest.json`
+
+At the repository root, two files need to point at your new adapter:
+
+**`extension/background.js`** — change the `importScripts` line near the
+bottom:
+
+```js
+importScripts("adapters/<your-platform-name>/adapter-boot.js");
+```
+
+**`extension/manifest.json`** — update:
 
 - Add your LMS origin to `host_permissions`
 - Change every `"matches"` entry in `content_scripts` from
@@ -97,7 +137,7 @@ Reload the extension in `chrome://extensions` and verify the content
 scripts are injected on your LMS (check the Network tab; you should see
 `[hook]` logs or equivalent).
 
-### 8. Test end-to-end
+### 9. Test end-to-end
 
 Open a lecture, play it for 30 seconds (so the 1080p HLS chunks get
 captured), open the popup. You should see flavors and KS captured. Click
@@ -107,7 +147,7 @@ under `~/Downloads/<your folder>`.
 ## Things that typically break
 
 - **CSS selectors change across LMS versions.** If your scrape returns
-  nulls, use `MutationObserver` like `metadata-scrape.js` does.
+  nulls, use `MutationObserver` like `content.js` does.
 - **The page overwrites `window.fetch` after you install your wrapper.**
   This is why `chat-hook.js` has a guard timer that reinstalls the wrapper
   for the first 15 seconds. Leave it in.
