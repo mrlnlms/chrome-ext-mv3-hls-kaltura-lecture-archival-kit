@@ -76,51 +76,10 @@ function renderItem(list, label, status, errMsg, folder) {
   list.appendChild(li);
 }
 
-// Walker mínimo pra mostrar a lista de materiais ANTES do clique
-// (quando o adapter já capturou materials_raw mas o download ainda não começou).
-// Mesmo critério do adapter-boot.js — duplicação proposital pra manter
-// popup standalone sem precisar importScripts.
-const _FOLDER_CASE_TRANSITION_RE = /([a-zà-ÿ'’])([A-ZÀ-Ý])/;
-function normalizeFolderName(s) {
-  if (!s) return s;
-  s = s.split("/")[0];
-  const m = s.match(_FOLDER_CASE_TRANSITION_RE);
-  if (m) s = s.slice(0, m.index + 1);
-  return s.trim();
-}
-function walkMaterialsBasic(raw, skipFolderPrefixes) {
-  const seen = new Set();
-  const out = [];
-  const prefixes = (skipFolderPrefixes || []).map((s) => s.trim().toLowerCase());
-  function shouldSkip(folder) {
-    const f = folder.toLowerCase();
-    return prefixes.some((p) => f.startsWith(p));
-  }
-  function walk(node, folderHint) {
-    if (node == null) return;
-    if (Array.isArray(node)) { for (const it of node) walk(it, folderHint); return; }
-    if (typeof node !== "object") return;
-    const fid = node.id;
-    const fname = node.fileName || node.name || node.originalFileName || node.filename;
-    if (typeof fid === "number" && typeof fname === "string" && fname.trim() &&
-        fname.indexOf(".") >= 0 && fname.length < 300) {
-      if (!seen.has(fid)) {
-        seen.add(fid);
-        const folder = normalizeFolderName((folderHint || "").trim());
-        if (!shouldSkip(folder)) {
-          out.push({ id: fid, filename: fname.trim(), folder });
-        }
-      }
-      return;
-    }
-    let newHint = folderHint;
-    const cand = node.folderName || node.name;
-    if (typeof cand === "string" && cand.trim()) newHint = cand.trim();
-    for (const k in node) walk(node[k], newHint);
-  }
-  walk(raw, null);
-  return out;
-}
+// A lista de materiais pré-clique vem do state genérico `pendingMaterials`:
+// `[{filename, folder}]`. Qualquer adapter que queira mostrar a preview pode
+// popular essa chave assim que capturar a lista. O popup fica agnóstico ao
+// shape específico do LMS.
 
 function renderMultimedia(state) {
   const section = document.getElementById("multimedia-section");
@@ -183,20 +142,11 @@ function renderMaterialsUpfront(state) {
       totalItems++;
       if (m.status === "done") doneItems++;
     }
-  } else if (!d) {
-    // Pré-clique: procura materials_raw no state do adapter.
-    const movelms = state.movelms || {};
-    if (movelms.raw) {
-      try {
-        const skipFolders = state.slidesUrl ? ["slides"] : [];
-        const items = walkMaterialsBasic(movelms.raw, skipFolders);
-        for (const m of items) {
-          renderItem(list, m.filename, "idle", null, m.folder);
-          totalItems++;
-        }
-      } catch (e) {
-        console.warn("[popup] walker falhou:", e);
-      }
+  } else if (!d && Array.isArray(state.pendingMaterials)) {
+    // Pré-clique: lista vem do adapter via chave genérica state.pendingMaterials.
+    for (const m of state.pendingMaterials) {
+      renderItem(list, m.filename || "(sem nome)", "idle", null, m.folder);
+      totalItems++;
     }
   }
 
