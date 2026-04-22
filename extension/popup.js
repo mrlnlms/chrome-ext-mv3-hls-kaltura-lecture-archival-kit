@@ -25,22 +25,28 @@ function formatSeconds(s) {
   return `${mm}:${ss}`;
 }
 
-// Mapeia status → ícone. Cobre os estados que o host emite
-// (multimedia_progress / material_progress / done / error) + os estados
-// pré-populados pelo adapter ("pending", "unavailable").
-const STATUS_ICON = {
-  pending: "○",
-  downloading: "⏳",
-  done: "✅",
-  error: "❌",
-  skipped: "↷",
-  unavailable: "—",
-};
+// Convenção de status/ícone (mesma entre Multimídia e Materiais):
+//   idle        ○   pré-clique (detectado mas ainda não começou a rodar)
+//   pending     ⏳   job iniciado, aguardando a vez
+//   downloading 📥   rodando agora
+//   done        ✅   concluído
+//   error       ❌   falhou
+//   skipped     ⏭    pulado (MBX_SKIP_VIDEO ou dedup)
+//   unavailable —   não disponível pra esta aula (ex: sem slides no player)
+function iconFor(status) {
+  switch (status) {
+    case "done":        return "✅";
+    case "downloading": return "📥";
+    case "error":       return "❌";
+    case "pending":     return "⏳";
+    case "skipped":     return "⏭";
+    case "unavailable": return "—";
+    default:            return "○"; // idle
+  }
+}
 
-// Ordem canônica dos items de multimídia (video primeiro, depois subs por idioma,
-// depois slides). Items não listados caem no fim preservando ordem de inserção.
+// Ordem canônica dos items de multimídia.
 const MM_ORDER = ["video", "sub_pt", "sub_en", "sub_es", "slides"];
-
 const MM_LABELS = {
   video: "Vídeo",
   sub_pt: "Legenda PT",
@@ -49,17 +55,89 @@ const MM_LABELS = {
   slides: "Slides",
 };
 
-function renderMultimedia(mm) {
+function renderItem(list, label, status, errMsg, folder) {
+  const li = document.createElement("li");
+  li.className = status || "idle";
+  const icon = document.createElement("span");
+  icon.className = "icon";
+  icon.textContent = iconFor(status);
+  li.appendChild(icon);
+  if (folder) {
+    const f = document.createElement("span");
+    f.className = "folder-hint";
+    f.textContent = `[${folder}]`;
+    li.appendChild(f);
+  }
+  const name = document.createElement("span");
+  name.className = "label-name";
+  name.title = errMsg || label;
+  name.textContent = label;
+  li.appendChild(name);
+  list.appendChild(li);
+}
+
+// Walker mínimo pra mostrar a lista de materiais ANTES do clique
+// (quando o adapter já capturou materials_raw mas o download ainda não começou).
+// Mesmo critério do adapter-boot.js — duplicação proposital pra manter
+// popup standalone sem precisar importScripts.
+const _FOLDER_CASE_TRANSITION_RE = /([a-zà-ÿ'’])([A-ZÀ-Ý])/;
+function normalizeFolderName(s) {
+  if (!s) return s;
+  s = s.split("/")[0];
+  const m = s.match(_FOLDER_CASE_TRANSITION_RE);
+  if (m) s = s.slice(0, m.index + 1);
+  return s.trim();
+}
+function walkMaterialsBasic(raw, skipFolderPrefixes) {
+  const seen = new Set();
+  const out = [];
+  const prefixes = (skipFolderPrefixes || []).map((s) => s.trim().toLowerCase());
+  function shouldSkip(folder) {
+    const f = folder.toLowerCase();
+    return prefixes.some((p) => f.startsWith(p));
+  }
+  function walk(node, folderHint) {
+    if (node == null) return;
+    if (Array.isArray(node)) { for (const it of node) walk(it, folderHint); return; }
+    if (typeof node !== "object") return;
+    const fid = node.id;
+    const fname = node.fileName || node.name || node.originalFileName || node.filename;
+    if (typeof fid === "number" && typeof fname === "string" && fname.trim() &&
+        fname.indexOf(".") >= 0 && fname.length < 300) {
+      if (!seen.has(fid)) {
+        seen.add(fid);
+        const folder = normalizeFolderName((folderHint || "").trim());
+        if (!shouldSkip(folder)) {
+          out.push({ id: fid, filename: fname.trim(), folder });
+        }
+      }
+      return;
+    }
+    let newHint = folderHint;
+    const cand = node.folderName || node.name;
+    if (typeof cand === "string" && cand.trim()) newHint = cand.trim();
+    for (const k in node) walk(node[k], newHint);
+  }
+  walk(raw, null);
+  return out;
+}
+
+function renderMultimedia(state) {
   const section = document.getElementById("multimedia-section");
   const list = document.getElementById("multimedia-list");
-  if (!mm || Object.keys(mm).length === 0) {
+  const hasFlavors = Object.keys(state.flavors || {}).length > 0;
+  if (!hasFlavors) {
     section.classList.remove("active");
     list.innerHTML = "";
     return;
   }
-  section.classList.add("active");
 
-  const keys = Object.keys(mm).sort((a, b) => {
+  const mm = state.download && state.download.multimedia ? state.download.multimedia : {};
+  // Coleta chaves: as padrão (MM_ORDER) + qualquer extra que o adapter pré-popule.
+  const keys = new Set([...MM_ORDER.slice(0, 3)]); // video + sub_pt + sub_en sempre aparecem
+  for (const k of Object.keys(mm)) keys.add(k);
+
+  const ordered = [...keys].sort((a, b) => {
     const ia = MM_ORDER.indexOf(a);
     const ib = MM_ORDER.indexOf(b);
     if (ia === -1 && ib === -1) return a.localeCompare(b);
@@ -69,59 +147,66 @@ function renderMultimedia(mm) {
   });
 
   list.innerHTML = "";
-  for (const key of keys) {
-    const status = mm[key];
-    const li = document.createElement("li");
-    li.className = status;
-    const icon = document.createElement("span");
-    icon.className = "icon";
-    icon.textContent = STATUS_ICON[status] || "?";
-    const label = document.createElement("span");
-    label.className = "label-name";
-    label.textContent = MM_LABELS[key] || key;
-    li.appendChild(icon);
-    li.appendChild(label);
-    list.appendChild(li);
+  for (const key of ordered) {
+    const status = mm[key] || "idle";
+    renderItem(list, MM_LABELS[key] || key, status);
   }
+  section.classList.add("active");
 }
 
-function renderMaterials(materials) {
+function renderMaterialsUpfront(state) {
   const section = document.getElementById("materials-section");
   const list = document.getElementById("materials-list");
   const count = document.getElementById("materials-count");
-  if (!materials || materials.length === 0) {
+  const d = state.download;
+
+  list.innerHTML = "";
+  let totalItems = 0;
+  let doneItems = 0;
+
+  // "Slides (do player)" é item especial — baseado em state.slidesUrl,
+  // não vem da aba Materiais da plataforma.
+  if (d && d.multimedia && d.multimedia.slides != null && d.multimedia.slides !== "unavailable") {
+    renderItem(list, "Slides (do player)", d.multimedia.slides);
+    totalItems++;
+    if (d.multimedia.slides === "done") doneItems++;
+  } else if (!d && state.slidesUrl) {
+    renderItem(list, "Slides (do player)", "idle");
+    totalItems++;
+  }
+
+  // Lista da aba Materiais: usa download.materials (pré-populado + atualizado
+  // pelo host); pré-clique cai no walker JS com materials_raw.
+  if (d && Array.isArray(d.materials) && d.materials.length) {
+    for (const m of d.materials) {
+      renderItem(list, m.filename || "(sem nome)", m.status || "pending", m.error, m.folder);
+      totalItems++;
+      if (m.status === "done") doneItems++;
+    }
+  } else if (!d) {
+    // Pré-clique: procura materials_raw no state do adapter.
+    const movelms = state.movelms || {};
+    if (movelms.raw) {
+      try {
+        const skipFolders = state.slidesUrl ? ["slides"] : [];
+        const items = walkMaterialsBasic(movelms.raw, skipFolders);
+        for (const m of items) {
+          renderItem(list, m.filename, "idle", null, m.folder);
+          totalItems++;
+        }
+      } catch (e) {
+        console.warn("[popup] walker falhou:", e);
+      }
+    }
+  }
+
+  if (totalItems === 0) {
     section.classList.remove("active");
-    list.innerHTML = "";
     count.textContent = "";
     return;
   }
   section.classList.add("active");
-  const done = materials.filter((m) => m.status === "done").length;
-  count.textContent = `(${done}/${materials.length})`;
-
-  list.innerHTML = "";
-  for (const m of materials) {
-    const li = document.createElement("li");
-    li.className = m.status || "pending";
-    const icon = document.createElement("span");
-    icon.className = "icon";
-    icon.textContent = STATUS_ICON[m.status] || STATUS_ICON.pending;
-    li.appendChild(icon);
-
-    if (m.folder) {
-      const folder = document.createElement("span");
-      folder.className = "folder-hint";
-      folder.textContent = `[${m.folder}]`;
-      li.appendChild(folder);
-    }
-
-    const name = document.createElement("span");
-    name.className = "label-name";
-    name.title = m.filename || "";
-    name.textContent = m.filename || "(sem nome)";
-    li.appendChild(name);
-    list.appendChild(li);
-  }
+  count.textContent = d ? `(${doneItems}/${totalItems})` : `(${totalItems})`;
 }
 
 async function render() {
@@ -133,12 +218,17 @@ async function render() {
     document.getElementById("flavor-count").textContent = String(flavorCount);
     document.getElementById("ks-status").textContent = state.ks ? "✓ captured" : "✗ missing";
 
-    const btn = document.getElementById("download-btn");
     const dl = state.download;
+    const btn = document.getElementById("download-btn");
     const canDownload = flavorCount > 0 && !!state.ks;
-    const isInProgress = dl && dl.status === "running";
-    btn.disabled = !canDownload || isInProgress;
+    const isRunning = dl && dl.status === "running";
+    btn.disabled = !canDownload || isRunning;
 
+    // Listas sempre renderizam (com status idle pré-clique).
+    renderMultimedia(state);
+    renderMaterialsUpfront(state);
+
+    // Seção download só aparece durante/depois do download.
     const section = document.getElementById("download-section");
     if (dl) {
       section.classList.add("active");
@@ -155,9 +245,6 @@ async function render() {
       } else {
         document.getElementById("dl-progress").textContent = "—";
       }
-
-      renderMultimedia(dl.multimedia);
-      renderMaterials(dl.materials);
 
       document.getElementById("dl-folder").textContent =
         dl.status === "done" && dl.path ? `Saved: ${dl.path}` : "";

@@ -35,23 +35,21 @@
   <h1>Kaltura Lecture Archival Kit</h1>
   <div class="row"><span class="label">Flavors captured:</span> <span id="flavor-count" class="value">…</span></div>
   <div class="row"><span class="label">KS:</span> <span id="ks-status" class="value">…</span></div>
-  <div class="row"><span class="label">Adapter:</span> <span id="adapter-name" class="value">none</span></div>
   <button id="download-btn" disabled>Download</button>
+
+  <div id="multimedia-section" class="list-section">
+    <h2>Multimídia</h2>
+    <ul id="multimedia-list" class="item-list"></ul>
+  </div>
+
+  <div id="materials-section" class="list-section">
+    <h2>Materiais <span id="materials-count" class="count-badge"></span></h2>
+    <ul id="materials-list" class="item-list"></ul>
+  </div>
 
   <div id="download-section" class="download-section">
     <div class="row"><span class="label">Phase:</span> <span id="dl-phase" class="value phase">…</span></div>
     <div class="row"><span class="label">Progress:</span> <span id="dl-progress" class="value">—</span></div>
-
-    <div id="multimedia-section" class="list-section">
-      <h2>Multimídia</h2>
-      <ul id="multimedia-list" class="item-list"></ul>
-    </div>
-
-    <div id="materials-section" class="list-section">
-      <h2>Materiais <span id="materials-count" class="count-badge"></span></h2>
-      <ul id="materials-list" class="item-list"></ul>
-    </div>
-
     <div id="dl-folder" class="folder"></div>
     <div id="dl-error" class="error"></div>
   </div>
