@@ -6,6 +6,7 @@
   <style>
     body { font-family: system-ui, sans-serif; font-size: 13px; width: 360px; padding: 12px; margin: 0; }
     h1 { font-size: 14px; margin: 0 0 8px 0; }
+    h2 { font-size: 12px; margin: 10px 0 4px 0; color: #444; text-transform: uppercase; letter-spacing: 0.5px; }
     .row { margin: 6px 0; display: flex; justify-content: space-between; }
     .label { color: #666; }
     .value { font-family: "SF Mono", Menlo, monospace; }
@@ -17,6 +18,17 @@
     .error { color: #c33; }
     .done { color: #393; }
     .folder { font-size: 11px; color: #666; word-break: break-all; margin-top: 4px; }
+    .list-section { margin-top: 10px; display: none; }
+    .list-section.active { display: block; }
+    .item-list { list-style: none; padding: 0; margin: 0; max-height: 180px; overflow-y: auto; }
+    .item-list li { display: flex; align-items: baseline; gap: 6px; padding: 2px 0; font-size: 12px; }
+    .item-list .icon { width: 14px; text-align: center; flex-shrink: 0; }
+    .item-list .label-name { color: #666; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .item-list .folder-hint { color: #999; font-size: 10px; margin-right: 4px; }
+    .item-list li.done .label-name { color: #393; }
+    .item-list li.error .label-name { color: #c33; }
+    .item-list li.skipped .label-name, .item-list li.unavailable .label-name { color: #aaa; font-style: italic; }
+    .count-badge { font-weight: normal; color: #999; font-size: 11px; text-transform: none; letter-spacing: 0; }
   </style>
 </head>
 <body>
@@ -29,6 +41,17 @@
   <div id="download-section" class="download-section">
     <div class="row"><span class="label">Phase:</span> <span id="dl-phase" class="value phase">…</span></div>
     <div class="row"><span class="label">Progress:</span> <span id="dl-progress" class="value">—</span></div>
+
+    <div id="multimedia-section" class="list-section">
+      <h2>Multimídia</h2>
+      <ul id="multimedia-list" class="item-list"></ul>
+    </div>
+
+    <div id="materials-section" class="list-section">
+      <h2>Materiais <span id="materials-count" class="count-badge"></span></h2>
+      <ul id="materials-list" class="item-list"></ul>
+    </div>
+
     <div id="dl-folder" class="folder"></div>
     <div id="dl-error" class="error"></div>
   </div>
