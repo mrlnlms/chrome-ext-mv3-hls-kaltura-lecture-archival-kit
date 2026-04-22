@@ -2,6 +2,7 @@
 
 import re
 import urllib.request
+from pathlib import Path
 from typing import Optional
 
 # User-Agent representando um navegador moderno no macOS.
@@ -82,3 +83,44 @@ def http_get_bytes(
             req.add_header(key, value)
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return resp.read()
+
+
+def download_file(
+    url: str,
+    out_path: Path,
+    headers: Optional[dict] = None,
+    timeout: float = 60.0,
+    chunk_size: int = 65536,
+) -> int:
+    """Baixa um arquivo via GET em streaming, gravando em disco com atomic rename.
+
+    Escreve primeiro em `{out_path}.part` e renomeia pra `out_path` ao final,
+    pra garantir que o arquivo de destino só exista se o download completar.
+    Se o download falhar no meio, o `.part` fica pra trás e pode ser inspecionado.
+
+    Args:
+        url: URL completa do recurso.
+        out_path: Caminho do arquivo final.
+        headers: Headers extras a enviar (opcional).
+        timeout: Tempo limite em segundos (padrão 60).
+        chunk_size: Tamanho de cada leitura em bytes (padrão 64 KiB).
+
+    Returns:
+        Total de bytes escritos.
+    """
+    part = out_path.with_suffix(out_path.suffix + ".part")
+    req = urllib.request.Request(url)
+    req.add_header("User-Agent", USER_AGENT)
+    if headers:
+        for key, value in headers.items():
+            req.add_header(key, value)
+    total = 0
+    with urllib.request.urlopen(req, timeout=timeout) as resp, part.open("wb") as f:
+        while True:
+            chunk = resp.read(chunk_size)
+            if not chunk:
+                break
+            f.write(chunk)
+            total += len(chunk)
+    part.rename(out_path)
+    return total
